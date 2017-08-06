@@ -43,9 +43,9 @@ for genre in genres:
                     f.write(response.data)
 
                 #Extracao das caracteristicas
-                # [Fs, x] = audioBasicIO.readAudioFile(path)
-                # F = audioFeatureExtraction.stFeatureExtraction(x, Fs, 0.050 * Fs, 0.025 * Fs)
-                # print(F)
+                [Fs, x] = audioBasicIO.readAudioFile(path)
+                F = audioFeatureExtraction.stFeatureExtraction(x, Fs, 0.005 * Fs, 0.03 * Fs)
+                print(F)
 
             #end_if
         #end_for

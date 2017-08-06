@@ -40,7 +40,7 @@ def stEnergy(frame):
 def stEnergyEntropy(frame, numOfShortBlocks=10):
     """Computes entropy of energy"""
     Eol = numpy.sum(frame ** 2)    # total frame energy
-    L = len(frame)
+    L = frame.size
     subWinLength = int(numpy.floor(L / numOfShortBlocks))
     if L != subWinLength * numOfShortBlocks:
             frame = frame[0:subWinLength * numOfShortBlocks]
@@ -60,8 +60,9 @@ def stEnergyEntropy(frame, numOfShortBlocks=10):
 
 def stSpectralCentroidAndSpread(X, fs):
     """Computes spectral centroid of frame (given abs(FFT))"""
-    ind = (numpy.arange(1, len(X) + 1)) * (fs/(2.0 * len(X)))
 
+    ind = (numpy.arange(1, X.size + 1)) * (fs / (2.0 * len(X)))
+    ind = ind.reshape(len(X), 2)
     Xt = X.copy()
     Xt = Xt / Xt.max()
     NUM = numpy.sum(ind * Xt)
@@ -82,7 +83,7 @@ def stSpectralCentroidAndSpread(X, fs):
 
 def stSpectralEntropy(X, numOfShortBlocks=10):
     """Computes the spectral entropy"""
-    L = len(X)                         # number of frame samples
+    L = X.size                       # number of frame samples
     Eol = numpy.sum(X ** 2)            # total spectral energy
 
     subWinLength = int(numpy.floor(L / numOfShortBlocks))   # length of sub-frame
@@ -106,6 +107,7 @@ def stSpectralFlux(X, Xprev):
     # compute the spectral flux as the sum of square distances:
     sumX = numpy.sum(X + eps)
     sumPrevX = numpy.sum(Xprev + eps)
+
     F = numpy.sum((X / sumX - Xprev/sumPrevX) ** 2)
 
     return F
@@ -114,7 +116,7 @@ def stSpectralFlux(X, Xprev):
 def stSpectralRollOff(X, c, fs):
     """Computes spectral roll-off"""
     totalEnergy = numpy.sum(X ** 2)
-    fftLength = len(X)
+    fftLength = X.size
     Thres = c*totalEnergy
     # Ffind the spectral rolloff as the frequency position where the respective spectral energy is equal to c*totalEnergy
     CumSum = numpy.cumsum(X ** 2) + eps
@@ -233,9 +235,21 @@ def stMFCC(X, fbank, nceps):
     #    with a small number of modifications to make it more compact and suitable for the pyAudioAnalysis Lib
     """
 
+    qtdDeleted = fbank.T.size - X.size
+
+    for i in range(0, qtdDeleted):
+        fbank = numpy.delete(fbank.T, [0.])
+
+    fbank = fbank.reshape((fbank.size/2), 2)
     mspec = numpy.log10(numpy.dot(X, fbank.T)+eps)
     ceps = dct(mspec, type=2, norm='ortho', axis=-1)[:nceps]
-    return ceps
+
+    resp = []
+    for i in range(0, ceps[0].size):
+        if ceps[0][i] != 0.0:
+            resp.append(ceps[0][i])
+
+    return numpy.asarray(resp)
 
 
 def stChromaFeaturesInit(nfft, fs):
@@ -261,15 +275,22 @@ def stChromaFeatures(X, fs, nChroma, nFreqsPerChroma):
     #TODO: 2 bug with large windows
 
     chromaNames = ['A', 'A#', 'B', 'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#']
-    spec = X**2    
-    if nChroma.max()<nChroma.shape[0]:        
+    spec = X**2
+    nChroma = [nChroma]*2
+
+    auxChroma = []
+    for i in range(0, nChroma[0].size):
+        auxChroma.append([nChroma[0][i], nChroma[1][i]])
+    nChroma = numpy.array(auxChroma)
+
+    if nChroma.max()<nChroma.shape[0]:
         C = numpy.zeros((nChroma.shape[0],))
         C[nChroma] = spec
         C /= nFreqsPerChroma[nChroma]
-    else:        
-        I = numpy.nonzero(nChroma>nChroma.shape[0])[0][0]        
+    else:
+        I = numpy.nonzero(nChroma > nChroma.shape[0])[0][0]
         C = numpy.zeros((nChroma.shape[0],))
-        C[nChroma[0:I-1]] = spec            
+        C[nChroma[0:I-1]] = spec
         C /= nFreqsPerChroma
     finalC = numpy.zeros((12, 1))
     newD = int(numpy.ceil(C.shape[0] / 12.0) * 12)
@@ -541,7 +562,7 @@ def stFeatureExtraction(signal, Fs, Win, Step):
     MAX = (numpy.abs(signal)).max()
     signal = (signal - DC) / MAX
 
-    N = len(signal)                                # total number of samples
+    N = signal.size                             # total number of samples
     curPos = 0
     countFrames = 0
     nFFT = Win / 2
@@ -551,34 +572,34 @@ def stFeatureExtraction(signal, Fs, Win, Step):
 
     numOfTimeSpectralFeatures = 8
     numOfHarmonicFeatures = 0
-    nceps = 13
-    numOfChromaFeatures = 13
-    totalNumOfFeatures = numOfTimeSpectralFeatures + nceps + numOfHarmonicFeatures + numOfChromaFeatures
-#    totalNumOfFeatures = numOfTimeSpectralFeatures + nceps + numOfHarmonicFeatures
+    nceps = 11
+#    numOfChromaFeatures = 13
+#    totalNumOfFeatures = numOfTimeSpectralFeatures + nceps + numOfHarmonicFeatures + numOfChromaFeatures
+    totalNumOfFeatures = numOfTimeSpectralFeatures + nceps + numOfHarmonicFeatures
 
     stFeatures = []
-    while (curPos + Win - 1 < N):                        # for each short-term window until the end of signal
-        countFrames += 1
-        x = signal[curPos:curPos+Win]                    # get current window
-        curPos = curPos + Step                           # update window position
-        X = abs(fft(x))                                  # get fft magnitude
-        X = X[0:nFFT]                                    # normalize fft
-        X = X / len(X)
-        if countFrames == 1:
-            Xprev = X.copy()                             # keep previous fft mag (used in spectral flux)
-        curFV = numpy.zeros((totalNumOfFeatures, 1))
-        curFV[0] = stZCR(x)                              # zero crossing rate
-        curFV[1] = stEnergy(x)                           # short-term energy
-        curFV[2] = stEnergyEntropy(x)                    # short-term entropy of energy
-        [curFV[3], curFV[4]] = stSpectralCentroidAndSpread(X, Fs)    # spectral centroid and spread
-        curFV[5] = stSpectralEntropy(X)                  # spectral entropy
-        curFV[6] = stSpectralFlux(X, Xprev)              # spectral flux
-        curFV[7] = stSpectralRollOff(X, 0.90, Fs)        # spectral rolloff
-        curFV[numOfTimeSpectralFeatures:numOfTimeSpectralFeatures+nceps, 0] = stMFCC(X, fbank, nceps).copy()    # MFCCs
+ #   while (curPos + Win - 1 < N):                        # for each short-term window until the end of signal
+    countFrames += 1
+    x = signal[curPos:curPos+Win]                    # get current window
+    curPos = curPos + Step                           # update window position
+    X = abs(fft(x))                                  # get fft magnitude
+    X = X[0:nFFT]                                    # normalize fft
+    X = X / len(X)
+    if countFrames == 1:
+        Xprev = X.copy()                             # keep previous fft mag (used in spectral flux)
+    curFV = numpy.zeros((totalNumOfFeatures, 1))
+    curFV[0] = stZCR(x)                              # zero crossing rate
+    curFV[1] = stEnergy(x)                           # short-term energy
+    curFV[2] = stEnergyEntropy(x)                    # short-term entropy of energy
+    [curFV[3], curFV[4]] = stSpectralCentroidAndSpread(X, Fs)    # spectral centroid and spread
+    curFV[5] = stSpectralEntropy(X)                  # spectral entropy
+    curFV[6] = stSpectralFlux(X, Xprev)              # spectral flux
+    curFV[7] = stSpectralRollOff(X, 0.90, Fs)        # spectral rolloff
+    curFV[numOfTimeSpectralFeatures:numOfTimeSpectralFeatures+nceps, 0] = stMFCC(X, fbank, nceps).copy()    # MFCCs
 
-        chromaNames, chromaF = stChromaFeatures(X, Fs, nChroma, nFreqsPerChroma)
-        curFV[numOfTimeSpectralFeatures + nceps: numOfTimeSpectralFeatures + nceps + numOfChromaFeatures - 1] = chromaF
-        curFV[numOfTimeSpectralFeatures + nceps + numOfChromaFeatures - 1] = chromaF.std()
+#      chromaNames, chromaF = stChromaFeatures(X, Fs, nChroma, nFreqsPerChroma)
+#      curFV[numOfTimeSpectralFeatures + nceps: numOfTimeSpectralFeatures + nceps + numOfChromaFeatures - 1] = chromaF
+#     curFV[numOfTimeSpectralFeatures + nceps + numOfChromaFeatures - 1] = chromaF.std()
 #        curFV[numOfTimeSpectralFeatures+nceps+numOfChromaFeatures-1] = numpy.nonzero( chromaF > 2.0 * chromaF.mean() )[0].shape[0]
 #        temp = numpy.sort(chromaF[:,0])
 #        curFV[numOfTimeSpectralFeatures+numOfChromaFeatures] = temp[-1] / numpy.mean(temp[0:5])
@@ -590,10 +611,10 @@ def stFeatureExtraction(signal, Fs, Win, Step):
 #            print
 #        if countFrames==20:
 #            print numpy.nonzero(chromaF > 5*chromaF.mean())[0].shape[0]
-        #HR, curFV[numOfTimeSpectralFeatures+nceps] = stHarmonic(x, Fs)
-        # curFV[numOfTimeSpectralFeatures+nceps+1] = freq_from_autocorr(x, Fs)
-        stFeatures.append(curFV)
-        Xprev = X.copy()
+    #HR, curFV[numOfTimeSpectralFeatures+nceps] = stHarmonic(x, Fs)
+    # curFV[numOfTimeSpectralFeatures+nceps+1] = freq_from_autocorr(x, Fs)
+    stFeatures.append(curFV)
+    Xprev = X.copy()
 
     stFeatures = numpy.concatenate(stFeatures, 1)
     return stFeatures
